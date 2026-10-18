@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PDF → Excel Converter</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+      background: #f3f4f6;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.08);
+      padding: 2.5rem 3rem;
+      width: 100%;
+      max-width: 480px;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #1f2328;
+      margin-bottom: .35rem;
+    }
+
+    .subtitle {
+      font-size: .875rem;
+      color: #57606a;
+      margin-bottom: 2rem;
+    }
+
+    /* Drop zone */
+    .drop-zone {
+      border: 2px dashed #cbd5e1;
+      border-radius: 8px;
+      padding: 2.5rem 1.5rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      position: relative;
+    }
+    .drop-zone:hover,
+    .drop-zone.dragover { border-color: #3b82d4; background: #eff6ff; }
+
+    .drop-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+
+    .drop-icon { font-size: 2.5rem; margin-bottom: .75rem; }
+
+    .drop-label {
+      font-size: .9rem;
+      color: #57606a;
+    }
+    .drop-label span { color: #3b82d4; font-weight: 600; }
+
+    .file-name {
+      margin-top: .75rem;
+      font-size: .85rem;
+      color: #1f2328;
+      font-weight: 500;
+      min-height: 1.2em;
+    }
+
+    /* Button */
+    button[type="submit"] {
+      margin-top: 1.5rem;
+      width: 100%;
+      padding: .75rem;
+      background: #3b82d4;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .2s, opacity .2s;
+    }
+    button[type="submit"]:hover { background: #2563b0; }
+    button[type="submit"]:disabled { opacity: .55; cursor: not-allowed; }
+
+    /* Status message */
+    .status {
+      margin-top: 1rem;
+      padding: .7rem 1rem;
+      border-radius: 6px;
+      font-size: .875rem;
+      display: none;
+    }
+    .status.error   { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; display: block; }
+    .status.success { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; display: block; }
+    .status.loading { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; display: block; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>PDF → Excel Converter</h1>
+    <p class="subtitle">Upload an SFAC class-list PDF and download the formatted .xlsx file.</p>
+
+    <form id="uploadForm">
+      <div class="drop-zone" id="dropZone">
+        <input type="file" id="pdfInput" name="pdf_file" accept=".pdf" required />
+        <div class="drop-icon">📄</div>
+        <p class="drop-label">Drag &amp; drop a PDF here, or <span>browse</span></p>
+        <p class="file-name" id="fileName"></p>
+      </div>
+
+      <button type="submit" id="submitBtn" disabled>Convert to Excel</button>
+    </form>
+
+    <div class="status" id="status"></div>
+  </div>
+
+  <script>
+    const input      = document.getElementById('pdfInput');
+    const fileNameEl = document.getElementById('fileName');
+    const submitBtn  = document.getElementById('submitBtn');
+    const statusEl   = document.getElementById('status');
+    const dropZone   = document.getElementById('dropZone');
+    const form       = document.getElementById('uploadForm');
+
+    function setFile(file) {
+      fileNameEl.textContent = file ? file.name : '';
+      submitBtn.disabled = !file;
+      statusEl.className = 'status';
+    }
+
+    input.addEventListener('change', () => setFile(input.files[0] || null));
+
+    // Drag-and-drop highlight
+    dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file && file.name.toLowerCase().endsWith('.pdf')) {
+        // Transfer to file input so the form picks it up
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        input.files = dt.files;
+        setFile(file);
+      }
+    });
+
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      const file = input.files[0];
+      if (!file) return;
+
+      submitBtn.disabled = true;
+      statusEl.className = 'status loading';
+      statusEl.textContent = 'Converting… please wait.';
+
+      const fd = new FormData();
+      fd.append('pdf_file', file);
+
+      try {
+        const res = await fetch('/convert', { method: 'POST', body: fd });
+
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({ error: 'Unexpected server error.' }));
+          statusEl.className = 'status error';
+          statusEl.textContent = json.error || 'Conversion failed.';
+          submitBtn.disabled = false;
+          return;
+        }
+
+        // Trigger browser download
+        const blob  = await res.blob();
+        const url   = URL.createObjectURL(blob);
+        const stem  = file.name.replace(/\.pdf$/i, '');
+        const a     = document.createElement('a');
+        a.href      = url;
+        a.download  = stem + '.xlsx';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+
+        statusEl.className = 'status success';
+        statusEl.textContent = `✓ ${stem}.xlsx downloaded successfully.`;
+      } catch (err) {
+        statusEl.className = 'status error';
+        statusEl.textContent = 'Network error — is the server running?';
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
