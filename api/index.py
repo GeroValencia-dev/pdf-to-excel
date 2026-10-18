@@ -12,12 +12,13 @@ from pathlib import Path
 
 from flask import Flask, render_template, request, send_file, jsonify
 
-# Make the repo root importable so pdf_to_excel can be found
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Ensure this file's own directory is on the path so pdf_to_excel is found
+sys.path.insert(0, str(Path(__file__).parent))
 from pdf_to_excel import parse_pdf, write_excel  # noqa: E402
 
-# Point Flask at the templates folder that lives next to this file
-app = Flask(__name__, template_folder="templates")
+# Use absolute path for templates so it works regardless of cwd
+_TEMPLATES = str(Path(__file__).parent / "templates")
+app = Flask(__name__, template_folder=_TEMPLATES)
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
 
 
